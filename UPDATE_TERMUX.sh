@@ -17,6 +17,8 @@ if [[ -n "$(git -C "$TARGET" status --porcelain)" ]]; then
     echo "The existing $TARGET directory has uncommitted changes. Stop to avoid overwriting them."
     exit 1
 fi
+# Always begin from the latest remote main; refuse non-fast-forward updates.
+git -C "$TARGET" pull --ff-only origin main
 # Copy only the project files (not an old or missing .git folder).
 (cd "$SOURCE" && tar --exclude=.git --exclude=build --exclude=.gradle --exclude=app/build -cf - .) | (cd "$TARGET" && tar -xf -)
 git -C "$TARGET" add -A
@@ -28,6 +30,6 @@ if [[ -z "$(git -C "$TARGET" config user.name || true)" ]] || [[ -z "$(git -C "$
     echo "Set your Git name and email before committing."
     exit 1
 fi
-git -C "$TARGET" commit -m "feat: EE Tube v0.2 home UI, bookmarks and HLS VOD"
+git -C "$TARGET" commit -m "feat: EE Tube v0.3 persistent website sessions and per-site logout"
 git -C "$TARGET" push origin main
 echo "Uploaded. Check: https://github.com/hald2020aa-hue/ee/actions"

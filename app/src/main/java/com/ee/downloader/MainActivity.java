@@ -14,6 +14,7 @@ import android.os.Looper;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.CookieManager;
+import android.widget.Switch;
 import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -79,6 +80,8 @@ public final class MainActivity extends Activity {
     private ListView downloadsList;
     private DownloadRowAdapter downloadAdapter;
     private DownloadManager downloadManager;
+    private SiteSessions siteSessions;
+    private Switch thirdPartyCookieSwitch;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -113,7 +116,21 @@ public final class MainActivity extends Activity {
             return true;
         });
 
+        siteSessions = new SiteSessions(this, web);
+        siteSessions.configure();
         configureWebView();
+        thirdPartyCookieSwitch = findViewById(R.id.thirdPartyCookieSwitch);
+        thirdPartyCookieSwitch.setChecked(siteSessions.thirdPartyEnabled());
+        thirdPartyCookieSwitch.setOnCheckedChangeListener((v, enabled) -> {
+            siteSessions.setThirdPartyEnabled(enabled);
+            toast(enabled ? "تم السماح بملفات ارتباط الطرف الثالث" : "تم تعطيل ملفات ارتباط الطرف الثالث");
+        });
+        findViewById(R.id.manageSessionsButton).setOnClickListener(v -> showSessionSites());
+        findViewById(R.id.logoutCurrentSiteButton).setOnClickListener(v -> {
+            String origin = SessionPolicy.origin(web.getUrl());
+            if (origin.isEmpty()) { toast("افتح الموقع في المتصفح أولًا"); return; }
+            confirmLogout(origin);
+        });
         findViewById(R.id.goButton).setOnClickListener(v -> navigate(address.getText().toString()));
         address.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
@@ -194,6 +211,7 @@ public final class MainActivity extends Activity {
                 if (MediaScanner.isHttpUrl(url)) {
                     address.setText(url);
                     recordHistory(url);
+                    siteSessions.remember(url);
                 }
                 inspectDocument();
                 handler.postDelayed(() -> inspectDocument(), 1800);
@@ -386,7 +404,8 @@ public final class MainActivity extends Activity {
     }
 
     private void recordHistory(String url) {
-        if(!MediaScanner.isHttpUrl(url)) return;
+        url = SessionPolicy.historyUrl(url);
+        if(url.isEmpty()) return;
         Set<String> old=getPreferences(MODE_PRIVATE).getStringSet(KEY_HISTORY,Collections.emptySet());
         Set<String> recent=new LinkedHashSet<>(old);
         for(String item:old) if(item.endsWith("\t"+url)) recent.remove(item);
@@ -421,6 +440,53 @@ public final class MainActivity extends Activity {
             .setPositiveButton("مسح",(d,w)->{
                 getPreferences(MODE_PRIVATE).edit().remove(key).apply();toast("تم مسح القائمة");
             }).setNegativeButton("إلغاء",null).show();
+    }
+
+    private void showSessionSites() {
+        List<String> origins = siteSessions.visitedOrigins();
+        if (origins.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("جلسات المواقع")
+                    .setMessage("ما في مواقع محفوظة بعد. افتح موقعًا من المتصفح وسجل دخولك بالطريقة المعتادة.")
+                    .setPositiveButton("حسنًا", null).show();
+            return;
+        }
+        String[] labels = new String[origins.size()];
+        for (int i = 0; i < origins.size(); i++) {
+            String origin = origins.get(i);
+            labels[i] = origin + "\n" + (siteSessions.hasVisibleCookies(origin)
+                    ? "توجد ملفات ارتباط (لا يؤكد تسجيل الدخول)"
+                    : "لم تُرصد ملفات ارتباط لهذا العنوان");
+        }
+        new AlertDialog.Builder(this).setTitle("إدارة جلسات المواقع")
+                .setMessage("جلسات المواقع منفصلة بحسب النطاق في WebView. تسجيل الدخول يبقى حسب سياسة كل موقع.")
+                .setItems(labels, (d, which) -> showSessionActions(origins.get(which)))
+                .setNegativeButton("إغلاق", null).show();
+    }
+
+    private void showSessionActions(String origin) {
+        new AlertDialog.Builder(this)
+                .setTitle(origin)
+                .setItems(new String[]{"فتح الموقع", "تسجيل الخروج / مسح جلسة هذا الموقع"}, (d, which) -> {
+                    if (which == 0) navigate(origin);
+                    else confirmLogout(origin);
+                })
+                .setNegativeButton("إلغاء", null).show();
+    }
+
+    private void confirmLogout(String origin) {
+        new AlertDialog.Builder(this)
+                .setTitle("تسجيل الخروج من موقع محدد")
+                .setMessage("سيحاول التطبيق مسح ملفات ارتباط هذا النطاق وتخزينه المحلي. " +
+                        "لن يستخدم مسح جميع المواقع، لكن قد تظل بعض بيانات IndexedDB أو " +
+                        "جلسات مرتبطة بنطاقات أخرى. لتأكيد الخروج من الخادم استخدم زر خروج الموقع نفسه.\n\n" + origin)
+                .setPositiveButton("مسح جلسة الموقع", (d, which) -> {
+                    siteSessions.clearSite(origin, web.getUrl(), () -> {
+                        toast("انتهت محاولة مسح جلسة الموقع: " + origin);
+                        showTab(3);
+                    });
+                })
+                .setNegativeButton("إلغاء", null).show();
     }
 
     private void chooseHls(String url) {
@@ -559,6 +625,11 @@ public final class MainActivity extends Activity {
         if (browserPane.getVisibility() == View.VISIBLE && web.canGoBack()) web.goBack();
         else if (homePane.getVisibility() != View.VISIBLE) showTab(0);
         else super.onBackPressed();
+    }
+
+    @Override protected void onPause() {
+        if (siteSessions != null) siteSessions.persist();
+        super.onPause();
     }
 
     @Override protected void onDestroy() {

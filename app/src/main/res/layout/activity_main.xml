@@ -17,7 +17,7 @@
                 android:text="التحميل الذكي للفيديو والصوت" android:textColor="@color/muted" android:textSize="11sp" />
         </LinearLayout>
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="v0.2" android:textColor="@color/accent" android:textSize="12sp" />
+            android:text="v0.3" android:textColor="@color/accent" android:textSize="12sp" />
     </LinearLayout>
 
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
@@ -111,6 +111,8 @@
                 <Button android:id="@+id/forwardButton" style="@style/BrowserButton" android:text="❯" />
                 <Button android:id="@+id/reloadButton" style="@style/BrowserButton" android:text="↻" />
                 <Button android:id="@+id/bookmarkButton" style="@style/BrowserButton" android:text="☆" />
+                <Button android:id="@+id/logoutCurrentSiteButton" style="@style/BrowserButton"
+                    android:text="خروج" android:contentDescription="تسجيل الخروج من الموقع الحالي" />
                 <Button android:id="@+id/mediaButton" android:layout_width="0dp" android:layout_weight="1"
                     android:layout_height="44dp" android:layout_marginStart="7dp"
                     android:text="⬇  الوسائط (0)" android:textSize="12sp" android:textAllCaps="false"
@@ -149,11 +151,27 @@
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="الإعدادات" android:textSize="24sp" android:textStyle="bold" android:textColor="@color/white" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="EE Tube — النسخة التجريبية 0.2" android:textColor="@color/accent"
+                    android:text="EE Tube — النسخة التجريبية 0.3" android:textColor="@color/accent"
                     android:layout_marginTop="12dp" android:textSize="16sp" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="12dp" android:lineSpacingExtra="6dp" android:textSize="14sp"
                     android:textColor="@color/white" android:text="• تنزيل MP4 وMP3 وWebM ومصادر الملفات المباشرة.\n• تنزيل HLS غير المشفّر عند استخدام مقاطع TS، مع اختيار الجودة من القائمة المتاحة.\n• بعض المواقع تتطلب مشغلات أو تواقيع لا يدعمها هذا الإصدار.\n• التحويل إلى MP3 وتنزيل DASH وDRM غير متاح.\n• تنزيلات HLS لا تستأنف تلقائيًا بعد إغلاق العملية." />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp" android:text="الخصوصية وجلسات المواقع"
+                    android:textColor="@color/white" android:textSize="19sp" android:textStyle="bold" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="7dp" android:text="تُحفظ جلساتك محليًا داخل WebView، دون نسخ كلمات المرور. مدة بقاء الدخول تحددها المواقع. مسح جلسة موقع بعينه ليس مضمونًا بالكامل إذا استخدم عدة نطاقات."
+                    android:textColor="@color/muted" android:textSize="13sp" android:lineSpacingExtra="4dp" />
+                <Switch android:id="@+id/thirdPartyCookieSwitch"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp" android:minHeight="56dp"
+                    android:text="السماح بملفات الارتباط من جهات خارجية (قد تحتاجه بعض تسجيلات الدخول)"
+                    android:textColor="@color/white" android:textSize="13sp" />
+                <Button android:id="@+id/manageSessionsButton"
+                    android:layout_width="match_parent" android:layout_height="52dp"
+                    android:layout_marginTop="12dp" android:text="إدارة المواقع وتسجيل الخروج المحدد"
+                    android:textAllCaps="false" android:textColor="@color/bg"
+                    android:background="@drawable/primary_button" />
                 <Button android:id="@+id/clearHistoryButton" android:layout_width="match_parent"
                     android:layout_height="52dp" android:layout_marginTop="18dp"
                     android:text="مسح سجل التصفح" android:textAllCaps="false"
