@@ -26,11 +26,17 @@ import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.Toast;
+import android.widget.TextView;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import android.webkit.MimeTypeMap;
 
 import org.json.JSONArray;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -47,13 +53,19 @@ import java.util.regex.Pattern;
 public final class MainActivity extends Activity {
     private static final String PREF = "ee_downloads";
     private static final String KEY_IDS = "download_ids";
+    private static final String KEY_BOOKMARKS = "site_bookmarks";
+    private static final String KEY_HISTORY = "site_history";
+
     private static final int MAX_CANDIDATES = 120;
     private static final Pattern SHARED_LINK = Pattern.compile("https?://[^\\s<>\"']+");
     private final LinkedHashMap<String, String> media = new LinkedHashMap<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable tick = new Runnable() {
         @Override public void run() {
-            if (downloadsPane != null && downloadsPane.getVisibility() == View.VISIBLE) refreshDownloads();
+            if (downloadsPane != null && downloadsPane.getVisibility() == View.VISIBLE) {
+                refreshDownloads();
+                hlsStatus.setText(HlsDownloadService.status(MainActivity.this));
+            }
             handler.postDelayed(this, 2500);
         }
     };
@@ -61,8 +73,9 @@ public final class MainActivity extends Activity {
     private EditText address;
     private WebView web;
     private ProgressBar loading;
-    private Button browserTab, downloadsTab, mediaButton;
-    private View browserPane, downloadsPane;
+    private Button homeTab, browserTab, downloadsTab, settingsTab, mediaButton;
+    private View homePane, browserPane, downloadsPane, settingsPane;
+    private TextView hlsStatus;
     private ListView downloadsList;
     private DownloadRowAdapter downloadAdapter;
     private DownloadManager downloadManager;
@@ -75,6 +88,11 @@ public final class MainActivity extends Activity {
         web = findViewById(R.id.webView);
         loading = findViewById(R.id.loadingBar);
         mediaButton = findViewById(R.id.mediaButton);
+        homePane = findViewById(R.id.homePane);
+        settingsPane = findViewById(R.id.settingsPane);
+        homeTab = findViewById(R.id.homeTab);
+        settingsTab = findViewById(R.id.settingsTab);
+        hlsStatus = findViewById(R.id.hlsStatus);
         browserTab = findViewById(R.id.browserTab);
         downloadsTab = findViewById(R.id.downloadsTab);
         browserPane = findViewById(R.id.browserPane);
@@ -108,10 +126,34 @@ public final class MainActivity extends Activity {
         findViewById(R.id.forwardButton).setOnClickListener(v -> { if (web.canGoForward()) web.goForward(); });
         findViewById(R.id.reloadButton).setOnClickListener(v -> web.reload());
         mediaButton.setOnClickListener(v -> showMediaChoices());
-        browserTab.setOnClickListener(v -> showTab(true));
-        downloadsTab.setOnClickListener(v -> showTab(false));
+        homeTab.setOnClickListener(v -> showTab(0));
+        browserTab.setOnClickListener(v -> showTab(1));
+        downloadsTab.setOnClickListener(v -> showTab(2));
+        settingsTab.setOnClickListener(v -> showTab(3));
+        findViewById(R.id.homeSearchButton).setOnClickListener(v -> homeSearch());
+        EditText homeSearchInput = findViewById(R.id.homeSearchInput);
+        homeSearchInput.setOnEditorActionListener((v, actionId, event) -> {
+            if(actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_GO) {
+                homeSearch(); return true;
+            }
+            return false;
+        });
+        findViewById(R.id.openBrowserButton).setOnClickListener(v -> showTab(1));
+        findViewById(R.id.openDownloadsButton).setOnClickListener(v -> showTab(2));
+        findViewById(R.id.quickYoutube).setOnClickListener(v -> navigate("https://m.youtube.com"));
+        findViewById(R.id.quickInstagram).setOnClickListener(v -> navigate("https://www.instagram.com"));
+        findViewById(R.id.quickTikTok).setOnClickListener(v -> navigate("https://www.tiktok.com"));
+        findViewById(R.id.quickFacebook).setOnClickListener(v -> navigate("https://m.facebook.com"));
+        findViewById(R.id.quickVimeo).setOnClickListener(v -> navigate("https://vimeo.com"));
+        findViewById(R.id.quickDailymotion).setOnClickListener(v -> navigate("https://www.dailymotion.com"));
+        findViewById(R.id.bookmarkButton).setOnClickListener(v -> toggleBookmark());
+        findViewById(R.id.savedSitesButton).setOnClickListener(v -> displaySites(KEY_BOOKMARKS));
+        findViewById(R.id.recentSitesButton).setOnClickListener(v -> displaySites(KEY_HISTORY));
+        findViewById(R.id.clearHistoryButton).setOnClickListener(v -> confirmClear(KEY_HISTORY));
+        findViewById(R.id.clearBookmarksButton).setOnClickListener(v -> confirmClear(KEY_BOOKMARKS));
         handleSharedIntent(getIntent());
         if (web.getUrl() == null) web.loadUrl("https://www.google.com");
+        showTab(0);
         handler.postDelayed(tick, 1500);
     }
 
@@ -144,10 +186,15 @@ public final class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 if (MediaScanner.isHttpUrl(url)) address.setText(url);
+                synchronized (media) {media.clear();}
+                mediaButton.setText("⬇  الوسائط (0)");
             }
 
             @Override public void onPageFinished(WebView view, String url) {
-                if (MediaScanner.isHttpUrl(url)) address.setText(url);
+                if (MediaScanner.isHttpUrl(url)) {
+                    address.setText(url);
+                    recordHistory(url);
+                }
                 inspectDocument();
                 handler.postDelayed(() -> inspectDocument(), 1800);
                 handler.postDelayed(() -> inspectDocument(), 4200);
@@ -173,7 +220,11 @@ public final class MainActivity extends Activity {
 
     private void navigate(String raw) {
         String link = raw == null ? "" : raw.trim();
-        if (!link.contains("://") && !link.isEmpty()) link = "https://" + link;
+        if (!link.contains("://") && !link.isEmpty()) {
+            link = (link.contains(" ") || (!link.contains(".") && !link.contains("/")))
+                    ? "https://www.google.com/search?q=" + Uri.encode(link)
+                    : "https://" + link;
+        }
         if (!MediaScanner.isHttpUrl(link)) {
             toast("أدخل رابط موقع يبدأ بـ HTTPS أو HTTP");
             return;
@@ -219,7 +270,11 @@ public final class MainActivity extends Activity {
                 media.put(url, origin);
             }
         }
-        runOnUiThread(() -> mediaButton.setText("الوسائط المكتشفة (" + media.size() + ")"));
+        runOnUiThread(() -> {
+            int count;
+            synchronized (media) { count = media.size(); }
+            mediaButton.setText("⬇  الوسائط (" + count + ")");
+        });
     }
 
     private void showMediaChoices() {
@@ -251,11 +306,11 @@ public final class MainActivity extends Activity {
 
     private void confirmDownload(String link) {
         if (!MediaScanner.isHttpUrl(link)) return;
+        if (HlsPlaylist.isHls(link)) { chooseHls(link); return; }
         if (MediaScanner.isStreamManifest(link)) {
-            new AlertDialog.Builder(this)
-                    .setTitle("بث HLS / DASH")
-                    .setMessage("تم اكتشاف قائمة تشغيل، لكن تنزيل HLS وDASH ودمج الأجزاء غير مدعوم في هذه النسخة. التنزيل يعمل حاليًا لملفات الوسائط المباشرة مثل MP4 وMP3 وM4A وWebM.")
-                    .setPositiveButton("فهمت", null).show();
+            new AlertDialog.Builder(this).setTitle("بث DASH")
+                    .setMessage("بث DASH لا يزال غير مدعوم في هذه النسخة.")
+                    .setPositiveButton("حسنًا", null).show();
             return;
         }
         new AlertDialog.Builder(this)
@@ -297,14 +352,133 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void showTab(boolean browserVisible) {
-        browserPane.setVisibility(browserVisible ? View.VISIBLE : View.GONE);
-        downloadsPane.setVisibility(browserVisible ? View.GONE : View.VISIBLE);
-        browserTab.setBackgroundResource(browserVisible ? R.drawable.primary_button : R.drawable.secondary_button);
-        downloadsTab.setBackgroundResource(browserVisible ? R.drawable.secondary_button : R.drawable.primary_button);
-        browserTab.setTextColor(browserVisible ? 0xFF0B1020 : 0xFFF8FAFF);
-        downloadsTab.setTextColor(browserVisible ? 0xFFF8FAFF : 0xFF0B1020);
-        if (!browserVisible) refreshDownloads();
+    private void showTab(boolean browserVisible) {showTab(browserVisible ? 1 : 2);}
+
+    private void showTab(int tab) {
+        homePane.setVisibility(tab==0 ? View.VISIBLE : View.GONE);
+        browserPane.setVisibility(tab==1 ? View.VISIBLE : View.GONE);
+        downloadsPane.setVisibility(tab==2 ? View.VISIBLE : View.GONE);
+        settingsPane.setVisibility(tab==3 ? View.VISIBLE : View.GONE);
+        Button[] tabs={homeTab,browserTab,downloadsTab,settingsTab};
+        for(int i=0;i<tabs.length;i++) {
+            tabs[i].setBackgroundResource(i==tab ? R.drawable.primary_button : R.drawable.secondary_button);
+            tabs[i].setTextColor(i==tab ? 0xFF0B1211 : 0xFF9FB8AC);
+        }
+        if(tab==2){refreshDownloads();hlsStatus.setText(HlsDownloadService.status(this));}
+    }
+
+    private void homeSearch() {
+        EditText input=findViewById(R.id.homeSearchInput);
+        String target=input.getText().toString().trim();
+        if(target.isEmpty()) {showTab(1);return;}
+        address.setText(target);
+        navigate(target);
+    }
+
+    private void toggleBookmark() {
+        String url=web.getUrl();
+        if(!MediaScanner.isHttpUrl(url)) {toast("افتح صفحة موقع أولًا");return;}
+        Set<String> old=getPreferences(MODE_PRIVATE).getStringSet(KEY_BOOKMARKS,Collections.emptySet());
+        Set<String> saved=new LinkedHashSet<>(old);
+        if(saved.contains(url)) {saved.remove(url);toast("تم حذف الموقع من المحفوظات");}
+        else {saved.add(url);toast("تم حفظ الموقع");}
+        getPreferences(MODE_PRIVATE).edit().putStringSet(KEY_BOOKMARKS,saved).apply();
+    }
+
+    private void recordHistory(String url) {
+        if(!MediaScanner.isHttpUrl(url)) return;
+        Set<String> old=getPreferences(MODE_PRIVATE).getStringSet(KEY_HISTORY,Collections.emptySet());
+        Set<String> recent=new LinkedHashSet<>(old);
+        for(String item:old) if(item.endsWith("\t"+url)) recent.remove(item);
+        recent.add(System.currentTimeMillis()+"\t"+url);
+        List<String> order=new ArrayList<>(recent);
+        Collections.sort(order, Collections.reverseOrder());
+        recent.clear();
+        for(int i=0;i<Math.min(60,order.size());i++) recent.add(order.get(i));
+        getPreferences(MODE_PRIVATE).edit().putStringSet(KEY_HISTORY,recent).apply();
+    }
+
+    private void displaySites(String key) {
+        Set<String> stored=getPreferences(MODE_PRIVATE).getStringSet(key,Collections.emptySet());
+        if(stored.isEmpty()){toast("القائمة فارغة");return;}
+        List<String> sites=new ArrayList<>(stored);
+        if(KEY_HISTORY.equals(key)) Collections.sort(sites,Collections.reverseOrder());
+        else Collections.sort(sites);
+        String[] labels=new String[sites.size()];
+        for(int i=0;i<sites.size();i++) {
+            String item=sites.get(i);
+            labels[i]=KEY_HISTORY.equals(key) && item.contains("\t") ? item.substring(item.indexOf('\t')+1) : item;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle(KEY_HISTORY.equals(key)?"سجل التصفح":"المواقع المحفوظة")
+            .setItems(labels,(dialog,which)->navigate(labels[which]))
+            .setNegativeButton("إغلاق",null).show();
+    }
+
+    private void confirmClear(String key) {
+        new AlertDialog.Builder(this).setTitle("تأكيد المسح")
+            .setMessage("هل تريد مسح هذه القائمة؟")
+            .setPositiveButton("مسح",(d,w)->{
+                getPreferences(MODE_PRIVATE).edit().remove(key).apply();toast("تم مسح القائمة");
+            }).setNegativeButton("إلغاء",null).show();
+    }
+
+    private void chooseHls(String url) {
+        toast("جارٍ قراءة الجودات المتاحة...");
+        String agent=web.getSettings().getUserAgentString();
+        String cookie=CookieManager.getInstance().getCookie(url);
+        String referer=web.getUrl();
+        new Thread(()->{
+            try{
+                HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
+                c.setConnectTimeout(12000);c.setReadTimeout(15000);
+                if(agent!=null)c.setRequestProperty("User-Agent",agent);
+                if(cookie!=null)c.setRequestProperty("Cookie",cookie);
+                if(MediaScanner.isHttpUrl(referer))c.setRequestProperty("Referer",referer);
+                String content;
+                try {
+                    if(c.getResponseCode()!=200)throw new IllegalStateException("HTTP "+c.getResponseCode());
+                    try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+                        byte[] buffer=new byte[4096];int n;
+                        while((n=in.read(buffer))!=-1){
+                            if(out.size()+n>2_000_000)throw new IllegalStateException("ملف قائمة كبير جدًا");
+                            out.write(buffer,0,n);
+                        }
+                        content=out.toString("UTF-8");
+                    }
+                }finally {c.disconnect();}
+                List<HlsPlaylist.Variant> options=HlsPlaylist.variants(url,content);
+                if(!options.isEmpty()) {
+                    runOnUiThread(()->{
+                        String[] names=new String[options.size()];
+                        for(int i=0;i<options.size();i++) names[i]=options.get(i).label;
+                        new AlertDialog.Builder(this).setTitle("اختر جودة بث HLS")
+                            .setItems(names,(d,which)->startHls(options.get(which).url))
+                            .setNegativeButton("إلغاء",null).show();
+                    });
+                } else {
+                    HlsPlaylist.Media m=HlsPlaylist.media(url,content);
+                    runOnUiThread(()->{
+                        if(m.supported()) new AlertDialog.Builder(this).setTitle("تحميل HLS")
+                            .setMessage("سيتم حفظ الفيديو بصيغة TS في Downloads/EE Tube. لا يدعم هذا التنزيل الاستئناف، وقد يستغرق وقتًا طويلًا.")
+                            .setPositiveButton("تنزيل",(d,w)->startHls(url))
+                            .setNegativeButton("إلغاء",null).show();
+                        else new AlertDialog.Builder(this).setTitle("هذه القائمة غير مدعومة")
+                            .setMessage(m.error).setPositiveButton("حسنًا",null).show();
+                    });
+                }
+            }catch(Exception ex){runOnUiThread(()->toast("تعذر تحليل بث HLS: "+ex.getMessage()));}
+        }).start();
+    }
+    private void startHls(String url) {
+        Intent i=new Intent(this,HlsDownloadService.class).setAction(HlsDownloadService.ACTION_START);
+        i.putExtra(HlsDownloadService.EXTRA_URL,url);
+        i.putExtra(HlsDownloadService.EXTRA_USER_AGENT,web.getSettings().getUserAgentString());
+        String cookie=CookieManager.getInstance().getCookie(url);
+        if(cookie!=null)i.putExtra(HlsDownloadService.EXTRA_COOKIE,cookie);
+        if(MediaScanner.isHttpUrl(web.getUrl()))i.putExtra(HlsDownloadService.EXTRA_REFERER,web.getUrl());
+        try{startForegroundService(i);showTab(2);toast("بدأ تنزيل HLS في الخلفية");}
+        catch(Exception e){toast("تعذر بدء خدمة HLS: "+e.getMessage());}
     }
 
     private void refreshDownloads() {
@@ -382,8 +556,8 @@ public final class MainActivity extends Activity {
     private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show(); }
 
     @Override public void onBackPressed() {
-        if (downloadsPane.getVisibility() == View.VISIBLE) showTab(true);
-        else if (web.canGoBack()) web.goBack();
+        if (browserPane.getVisibility() == View.VISIBLE && web.canGoBack()) web.goBack();
+        else if (homePane.getVisibility() != View.VISIBLE) showTab(0);
         else super.onBackPressed();
     }
 

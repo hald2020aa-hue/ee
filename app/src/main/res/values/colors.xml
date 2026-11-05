@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0B1020</color>
-    <color name="surface">#161E32</color>
-    <color name="surface_alt">#202B43</color>
-    <color name="accent">#7788FF</color>
-    <color name="white">#F8FAFF</color>
-    <color name="muted">#ABB9D2</color>
+    <color name="bg">#0B1211</color>
+    <color name="surface">#101B19</color>
+    <color name="card">#182623</color>
+    <color name="accent">#30E0A0</color>
+    <color name="white">#F6FFF9</color>
+    <color name="muted">#9FB8AC</color>
 </resources>
